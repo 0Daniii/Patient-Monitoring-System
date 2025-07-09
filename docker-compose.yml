@@ -1,0 +1,146 @@
+  version: "3.8"  
+
+  services:
+    db:
+      image: postgres:14
+      environment:
+        POSTGRES_USER: admin
+        POSTGRES_PASSWORD: yourVeryStrongPassword
+        POSTGRES_DB: v3db
+      ports:
+        - "5432:5432"
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+      networks:
+        - pmb-network
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U admin -d v3db"]
+        interval: 5s
+        timeout: 5s
+        retries: 10
+    
+    mosquitto:
+      image: eclipse-mosquitto:2
+      build:
+        context: .
+        dockerfile: Dockerfile.mosquitto
+      volumes:
+        - ./mosquitto-config:/mosquitto/config
+        - ./mosquitto-plugins:/mosquitto/plugins
+        - ./mosquitto/data:/mosquitto/data
+        - ./mosquitto/log:/mosquitto/log
+      ports:
+        - "1883:1883"
+        - "9001:9001"
+      command: mosquitto -c /mosquitto/config/mosquitto.conf
+      networks:
+        - pmb-network
+
+    auth-server:
+      image: quay.io/keycloak/keycloak:latest
+      command:   
+        - start-dev
+        - --http-enabled=true
+        - --health-enabled=true
+      environment:
+        KEYCLOAK_ADMIN: admin
+        KEYCLOAK_ADMIN_PASSWORD: admin
+        KC_DB: postgres
+        KC_DB_URL: jdbc:postgresql://db:5432/v3db
+        KC_DB_USERNAME: admin
+        KC_DB_PASSWORD: yourVeryStrongPassword
+        KC_HEALTH_ENABLED: "true"
+        KC_METRICS_ENABLED: "true"
+
+      ports:
+        - "8888:8080"
+      depends_on:
+        db:
+          condition: service_healthy
+      healthcheck:
+        test: ["CMD-SHELL", "nc -z 127.0.0.1 8080"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+        start_period: 30s
+      volumes:
+        - keycloak_data:/opt/keycloak/data
+      networks:
+        - pmb-network
+    
+
+    wait-for-auth:
+      image: alpine:latest
+      depends_on:
+        - auth-server
+      command: sh -c "echo 'Auth server is ready!'"
+      networks:
+        - pmb-network
+
+    setup-keycloak:
+      build:
+        context: ./keycloak-setup
+        dockerfile: Dockerfile
+      depends_on:
+        - wait-for-auth
+      networks:
+        - pmb-network
+
+    pmb-app:
+      build:
+        context: .
+        dockerfile: Dockerfile.backend
+      environment:
+        DATABASE_URL: postgresql://admin:yourVeryStrongPassword@db:5432/v3db
+        DB_HOST: db
+        DB_PORT: 5432
+        DB_NAME: v3db
+        DB_USER: admin
+        DB_PASSWORD: yourVeryStrongPassword
+        MQTT_BROKER: mosquitto
+        MQTT_PORT: 1883
+        AUTH_SERVER_URL: http://auth-server:8080/realms/pmb
+        JWKS_URI: http://auth-server:8080/realms/pmb/protocol/openid-connect/certs
+        TOKEN_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/token
+        #AUTHORIZATION_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/auth
+        TOKEN_ISSUER: http://auth-server:8080/realms/pmb
+        API_AUDIENCE: https://patientmonitor.api
+        REDIRECT_URI: http://localhost:8080/callback
+        WEB_APP_CLIENT_ID: patient-monitor-web-app
+        WEB_APP_CLIENT_SECRET: nYU5roKff6KutfL6CO6NcjHUBuwsi4o6
+        BACKEND_SERVICE_CLIENT_ID: patient-monitor-backend
+        BACKEND_SERVICE_CLIENT_SECRET: dXA2MECL1mBl8M3FRKYITHM9SCMIMfhM
+        MQTT_SIMULATOR_CLIENT_ID: patient-monitor-simulator
+        MQTT_SIMULATOR_CLIENT_SECRET: gdykGlAOxiEOZ88d786MhCJ4TZvWDAjV
+        FLASK_ENV: development
+      ports:
+        - "8080:8080"
+      depends_on:
+        - auth-server
+      networks:
+        - pmb-network
+
+    mqtt-simulator:
+      build:
+        context: .
+        dockerfile: Dockerfile.simulator
+      environment:
+        MQTT_BROKER: mosquitto
+        MQTT_PORT: 1883
+        NUM_PATIENTS: 5
+        PUBLISH_INTERVAL: 5
+        AUTH_SERVER_URL: http://auth-server:8080/realms/pmb
+        TOKEN_ENDPOINT: http://auth-server:8080/realms/pmb/protocol/openid-connect/token
+        MQTT_SIMULATOR_CLIENT_ID: patient-monitor-simulator
+        MQTT_SIMULATOR_CLIENT_SECRET: gdykGlAOxiEOZ88d786MhCJ4TZvWDAjV
+      depends_on:
+        - setup-keycloak
+      networks:
+        - pmb-network
+
+  volumes:
+    pgdata:
+    keycloak_data:
+
+  networks:
+    pmb-network:

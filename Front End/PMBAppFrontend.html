@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Patient Monitoring Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2em;
+      background-color: #f8f8f8;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #004466;
+      color: white;
+      padding: 1em;
+      border-radius: 8px;
+    }
+    a.button {
+      text-decoration: none;
+      color: white;
+      background-color: #007acc;
+      padding: 0.5em 1em;
+      border-radius: 4px;
+      margin-left: 1em;
+    }
+    a.button:hover {
+      background-color: #005f99;
+    }
+    section {
+      margin-top: 2em;
+    }
+    pre {
+      background-color: #fff;
+      padding: 1em;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Patient Monitoring System</h1>
+  <div>
+    {% if not logged_in %}
+      <a href="{{ url_for('login') }}" class="button">🔐 Log In</a>
+    {% else %}
+      <a href="{{ url_for('logout') }}" class="button">🚪 Log Out</a>
+    {% endif %}
+  </div>
+</header>
+
+<section>
+  {% if logged_in %}
+    <h2>Live Vitals Stream</h2>
+    <div id="stream-output"><em>Waiting for data...</em></div>
+    <script>
+      const streamOutput = document.getElementById("stream-output");
+      const evtSource = new EventSource("/stream");
+
+      evtSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        streamOutput.innerHTML = `
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+        `;
+      };
+    </script>
+  {% else %}
+    <p>Please log in to view real-time patient vitals and blockchain records.</p>
+  {% endif %}
+</section>
+
+</body>
+</html>

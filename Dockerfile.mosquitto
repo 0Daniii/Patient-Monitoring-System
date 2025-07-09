@@ -1,0 +1,6 @@
+FROM eclipse-mosquitto:2
+
+# Add libcurl so auth-plug.so can load
+RUN apk add --no-cache libcurl
+
+# Optional: add any other debugging tools
